@@ -1,7 +1,9 @@
-const fs = require('node:fs');
 const path = require('node:path');
+const fs = require('node:fs');
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
+const {WebSocket} = require('ws');
 
+const ws = new WebSocket('ws://localhost:8080');
 
 require('dotenv').config();
 
@@ -51,7 +53,13 @@ for (const file of eventFiles) {
         client.on(event.name, (...args) => event.execute(...args));
     }
 }
-
+client.cWS = ws;
+ws.on('open', () => {
+    console.log('Connected successfully to the Websocket Server!')
+});
+ws.on('error',(error)=>{
+    console.error('WebSocket error:', error);
+})
 
 client.on('rateLimited', () => {
     process.kill(1);

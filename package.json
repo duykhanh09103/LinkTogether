@@ -5,6 +5,7 @@
     "lowdb": "^7.0.1",
     "ws": "^8.18.3"
   },
+  "type":"commonjs",
   "optionalDependencies": {
     "bufferutil": "^4.0.9"
   }
