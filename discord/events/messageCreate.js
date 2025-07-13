@@ -4,7 +4,6 @@ module.exports = {
     async execute(message){  
         if(message.author.bot) return;
         let data = await message.client.db.collection('discord_guild_setting').findOne({guildID: message.guild.id});
-        console.log(message)
         if (!data) return;
         let allowedChannels = data.allowedChannels;
         if(!allowedChannels.includes(message.channel.id)) return;
@@ -16,7 +15,7 @@ module.exports = {
                 content: message.content,
                 id: message.id,
                 channel: {name: message.channel.name, id: message.channel.id, },
-                attachments: message.attachments
+                attachments: message.attachments,   
             }
         })
     );

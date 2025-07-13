@@ -4,6 +4,7 @@ const { Client, GatewayIntentBits, Collection, EmbedBuilder, WebhookClient } = r
 const { WebSocket } = require('ws');
 const { MongoClient } = require('mongodb');
 const ms = require('ms');
+const { get } = require('node:http');
 require('dotenv').config();
 
 const { DISCORD_TOKEN: token, MONGODB_URI: mongoURI, WS_URL: wsURL } = process.env;
@@ -70,9 +71,10 @@ ws.on('open', () => {
 ws.on('error', (error) => {
     console.error('WebSocket error:', error);
 })
-ws.on('message', async (data) => {
+ws.on('message', async (datas) => {
     let expiryTime = ms('7d');
-    const messageData = JSON.parse(data);
+    const messageData = JSON.parse(datas);
+    console.log('Received message:', messageData);
     if (messageData.type === 'messageCreate') {
         let data = await client.db.collection('discord_guild_setting').find({}).toArray();
         if (!data || data.length === 0) return;
@@ -88,10 +90,10 @@ ws.on('message', async (data) => {
                 }
                 try {
                     let webhookMessage = await webhook.send({
-                        content: messageData.data.content,
+                        content: messageData.data.content +`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
                         username: messageData.data.user.username,
                         avatarURL: messageData.data.user.imageURL,
-                        files: messageData.data.attachments.map(attachment => attachment.url),
+                        files: getAttachment(messageData.data.attachments),
                     })
                     await client.db.collection('discord_messages').insertOne({
                         originalID: messageData.data.id,
@@ -119,8 +121,8 @@ ws.on('message', async (data) => {
                return;
             }
             webhook.editMessage(data.messageID, {
-                content: messageData.data.content,
-                files: messageData.data.attachments,
+                content: messageData.data.content+`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                files: getAttachment(messageData.data.attachments),
             });
         }
         catch (error) {
@@ -147,6 +149,23 @@ ws.on('message', async (data) => {
         }
     }
 });
+
+function getAttachment(attachments){
+    if(!attachments || attachments.length === 0) return undefined;
+    let attachmentArray = []
+    for (const attachment of attachments) {
+        if (attachment.url) {
+            return attachments;
+        }
+        else {
+            attachmentArray.push({
+                name: attachment.name,
+                attachment: Buffer.from(attachment.attachments.data)
+            })
+        }
+    }
+    return attachmentArray;
+}
 
 client.on('rateLimited', () => {
     process.kill(1);

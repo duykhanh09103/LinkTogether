@@ -1,6 +1,17 @@
 const { App, subtype } = require('@slack/bolt');
+
 require('dotenv').config();
-const { WebSocket} = require('ws');
+const { WebSocket } = require('ws');
+const { MongoClient } = require('mongodb');
+
+const mongoClient = new MongoClient(process.env.MONGODB_URI);
+
+let db;
+mongoClient.connect().then(async () => {
+    db = mongoClient.db();
+    console.log("Connected to MongoDB");
+    await db.collection('slack_messages').createIndex({ "expireAt": 1 }, { expireAfterSeconds: 0 });
+});
 
 const ws = new WebSocket(process.env.WS_URL);
 ws.on('open', () => {
@@ -9,8 +20,9 @@ ws.on('open', () => {
 ws.on('error', (error) => {
     app.logger.error('WebSocket error:', error);
 });
-
-
+ws.on('close', () => {
+    app.logger.info('WebSocket connection closed');
+});
 
 const app = new App({
     token: process.env.SLACK_BOT_TOKEN,
@@ -20,13 +32,213 @@ const app = new App({
 
 });
 
-app.message(async ({ message, say }) => {
-    console.log(message);
+app.command('/setchannel', async ({ command, ack, respond }) => {
+    await ack();
+    const channel = command.channel_id;
+    let data = await db.collection('slack_setting').findOne({ teamID: command.team_id })
+    if (!data) {
+        try {
+            await db.collection('slack_setting').insertOne({
+                teamID: command.team_id,
+                allowedChannels: [channel]
+            });
+            await respond({ text: `The channel <#${channel}> has been set successfully.`, response_type: 'ephemeral' });
+            return;
+        }
+        catch (error) {
+            console.error(error);
+            await respond({ text: 'An error occurred while setting the channel.', response_type: 'ephemeral' });
+        }
+    }
+    try {
+        if (data.allowedChannels.includes(channel)) {
+            await respond({ text: `The channel <#${channel}> is already set.`, response_type: 'ephemeral' });
+            return;
+        }
+        await db.collection('slack_setting').updateOne({ teamID: command.team_id }, {
+            $push: {
+                allowedChannels: channel
+            }
+        }, { upsert: true });
+        await respond({ text: `The channel <#${channel}> has been set successfully.`, response_type: 'ephemeral' });
+    }
+    catch (error) {
+        console.error(error);
+        await respond({ text: 'An error occurred while setting the channel.', response_type: 'ephemeral' });
+    }
 });
+
+app.message(async ({ message, say, client }) => {
+    console.log(message.subtype);
+    console.log(message)
+
+    if (!message.subtype) {
+        const { user } = await client.users.info({ user: message.user });
+        ws.send(JSON.stringify({
+            platform: 'slack',
+            type: 'messageCreate',
+            data: {
+                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
+                id: message.client_msg_id,
+                content: message.text,
+                channel: { id: message.channel },
+            }
+        }))
+        return;
+    }
+    if (message.subtype === 'file_share') {
+        const { user } = await client.users.info({ user: message.user });
+
+        ws.send(JSON.stringify({
+            platform: 'slack',
+            type: 'messageCreate',
+            data: {
+                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
+                id: message.client_msg_id,
+                content: message.text,
+                channel: { id: message.channel },
+                attachments: await getAttachment(message)
+            }
+
+        }))
+        return;
+    }
+
+    if (message.subtype === 'message_changed') {
+        const { user } = await client.users.info({ user: message.message.user });
+        ws.send(JSON.stringify({
+            platform: 'slack',
+            type: 'messageUpdate',
+            data: {
+                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
+                id: message.message.client_msg_id,
+                content: message.message.text,
+                channel: { id: message.channel },
+                attachments: await getAttachment(message.message)
+            }
+        }))
+        return;
+    }
+    if (message.subtype === 'message_deleted') {
+        const { user } = await client.users.info({ user: message.previous_message.user });
+        ws.send(JSON.stringify({
+            platform: 'slack',
+            type: 'messageDelete',
+            data: {
+                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.previous_message.user },
+                id: message.previous_message.client_msg_id,
+            }
+        }));
+    }
+
+});
+async function getAttachment(message) {
+    let attachments = [];
+    if (!message.files || message.files.length === 0) return undefined;
+    for (const file of message.files || []) {
+        if (!file.url_private) continue;
+        let respond = await fetch(file.url_private, {
+            headers: {
+                "Content-Type": 'application/json',
+                "Authorization": `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                "X-Download-Authorization": `Bearer ${process.env.SLACK_BOT_TOKEN}`
+            }
+        })
+        let buffer = Buffer.from(await respond.arrayBuffer());
+
+        console.log(buffer)
+        attachments.push({
+            name: file.name,
+            attachments: buffer
+        })
+    }
+    return attachments;
+}
+async function getAttachmentFromWs(attachments) {
+    let attachmentArray = []
+    for (const attachment of attachments) {
+        if (attachment.url) {
+            attachmentArray.push({
+                filename: attachment.name,
+                file: (await fetch(attachment.url)).body
+            });
+        }
+        else {
+            attachmentArray.push({
+                filename: attachment.name,
+                file: Buffer.from(attachment.attachments.data)
+            })
+        }
+    }
+    return attachmentArray;
+
+}
 
 (async () => {
     await app.start();
-    
-
     app.logger.info('⚡️ Bolt app is running!');
+
+    ws.on('message', async (datas) => {
+        const messageData = JSON.parse(datas);
+        console.log(messageData);
+        let teamData = await db.collection('slack_setting').find({}).toArray();
+        if (!teamData) return;
+        for (const Team of teamData) {
+            if (messageData.type === 'messageCreate') {
+                console.log("got it!")
+                for (const channelID of Team.allowedChannels) {
+                    try {
+                        if (messageData.data.attachments && messageData.data.attachments.length > 0) {
+                            console.log(await getAttachmentFromWs(messageData.data.attachments));
+                            let message = await app.client.files.uploadV2({
+                                channel_id: channelID,
+                                file: await getAttachmentFromWs(messageData.data.attachments),
+                            })
+                            await db.collection('slack_messages').insertOne({
+                                originalID: messageData.data.id,
+                                messageTS: message.ts,
+                                channelID: channelID,
+                            })
+                            return;
+                        }
+                        let message = await app.client.chat.postMessage({
+                            channel: channelID,
+                            text: ">" + messageData.data.content.replace("<", "").replace(">", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                            username: messageData.data.user.username,
+                            icon_url: messageData.data.user.imageURL,
+                        })
+                        await db.collection('slack_messages').insertOne({
+                            originalID: messageData.data.id,
+                            messageTS: message.ts,
+                            channelID: channelID,
+                        });
+                    }
+                    catch (err) { return console.error(`Failed to send message to channel ${channelID}:`, err); }
+                }
+            }
+        }
+        if (messageData.type === 'messageUpdate') {
+            let data = await db.collection('slack_messages').findOne({ originalID: messageData.data.id });
+            if (!data) return;
+            try {
+                await app.client.chat.update({
+                    channel: data.channelID,
+                    ts: data.messageTS,
+                    text: ">" + messageData.data.content.replace("<", "").replace(">", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                });
+            }
+            catch (error) { return console.error(`Failed to fetch channel or webhook for message update:`, error); }
+        }
+        if (messageData.type === 'messageDelete') {
+            let data = await db.collection('slack_messages').findOne({ originalID: messageData.data.id });
+            if (!data) return;
+            try {
+                await app.client.chat.delete({
+                    channel: data.channelID,
+                    ts: data.messageTS,
+                });
+            }
+            catch (error) { return console.error(`Failed to delete message in channel ${data.channelID}:`, error); }
+        }
+    });
 })();
