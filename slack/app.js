@@ -37,8 +37,9 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
     await ack();
     const channel = command.channel_id;
     let data = await db.collection('slack_setting').findOne({ teamID: command.team_id })
-    let channelInfo = await app.client.conversations.info({channel: channel});
-    if(command.user_id !== channelInfo.channel.creator) {
+    let code = command.text.trim();
+    let channelInfo = await app.client.conversations.info({ channel: channel });
+    if (command.user_id !== channelInfo.channel.creator) {
         await respond({ text: 'You do not have permission to set this channel.', response_type: 'ephemeral' });
         return;
     }
@@ -46,9 +47,9 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
         try {
             await db.collection('slack_setting').insertOne({
                 teamID: command.team_id,
-                allowedChannels: [channel]
+                allowedChannels: [{ channelID: channel, code: code }]
             });
-            await respond({ text: `The channel <#${channel}> has been set successfully.`, response_type: 'ephemeral' });
+            await respond({ text: `The channel <#${channel}> has been set successfully with code ${code}.`, response_type: 'ephemeral' });
             return;
         }
         catch (error) {
@@ -57,16 +58,16 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
         }
     }
     try {
-        if (data.allowedChannels.includes(channel)) {
+        if (data.allowedChannels.some(item => item.channelID === channel)) {
             await respond({ text: `The channel <#${channel}> is already set.`, response_type: 'ephemeral' });
             return;
         }
         await db.collection('slack_setting').updateOne({ teamID: command.team_id }, {
             $push: {
-                allowedChannels: channel
+                allowedChannels: { channelID: channel, code: code }
             }
         }, { upsert: true });
-        await respond({ text: `The channel <#${channel}> has been set successfully.`, response_type: 'ephemeral' });
+        await respond({ text: `The channel <#${channel}> has been set successfully with code ${code}.`, response_type: 'ephemeral' });
     }
     catch (error) {
         console.error(error);
@@ -75,8 +76,13 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
 });
 
 app.message(async ({ message, say, client }) => {
-    console.log(message)
-    let channelInfo = await app.client.conversations.info({channel: message.channel});
+    let channelInfo = await app.client.conversations.info({ channel: message.channel });
+    let team = message.team?? channelInfo.channel.context_team_id;
+    let data = await db.collection('slack_setting').findOne({ teamID: team });
+    if (!data) return;
+    if (!data.allowedChannels.some(item => item.channelID === message.channel)) return;
+    
+    let code = data.allowedChannels.find(item => item.channelID === message.channel).code;
     if (!message.subtype) {
         const { user } = await client.users.info({ user: message.user });
         ws.send(JSON.stringify({
@@ -86,7 +92,7 @@ app.message(async ({ message, say, client }) => {
                 user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
                 id: message.client_msg_id,
                 content: message.text,
-                channel: { id: message.channel,name: channelInfo.channel.name },
+                channel: { id: message.channel, name: channelInfo.channel.name,code:code },
             }
         }))
         return;
@@ -101,7 +107,7 @@ app.message(async ({ message, say, client }) => {
                 user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
                 id: message.client_msg_id,
                 content: message.text,
-                channel: { id: message.channel, name: channelInfo.channel.name },
+                channel: { id: message.channel, name: channelInfo.channel.name , code: code },
                 attachments: await getAttachment(message)
             }
 
@@ -118,7 +124,7 @@ app.message(async ({ message, say, client }) => {
                 user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
                 id: message.message.client_msg_id,
                 content: message.message.text,
-                channel: { id: message.channel, name: channelInfo.channel.name },
+                channel: { id: message.channel, name: channelInfo.channel.name, code: code },
                 attachments: await getAttachment(message.message)
             }
         }))
@@ -191,26 +197,27 @@ async function getAttachmentFromWs(attachments) {
         if (!teamData) return;
         for (const Team of teamData) {
             if (messageData.type === 'messageCreate') {
-                for (const channelID of Team.allowedChannels) {
+                for (const channel of Team.allowedChannels) {
+                    if (channel.code !== messageData.data.channel.code) continue;
                     try {
                         let message = await app.client.chat.postMessage({
-                            channel: channelID,
+                            channel: channel.channelID,
                             text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                             username: messageData.data.user.username,
                             icon_url: messageData.data.user.imageURL,
                         })
                         if (messageData.data.attachments && messageData.data.attachments.length > 0) {
                             await app.client.files.uploadV2({
-                                channel_id: channelID,
+                                channel_id: channel.channelID,
                                 file_uploads: await getAttachmentFromWs(messageData.data.attachments),
                                 thread_ts: message.ts,
                             })
-                           
+
                         }
                         await db.collection('slack_messages').insertOne({
                             originalID: messageData.data.id,
                             messageTS: message.ts,
-                            channelID: channelID,
+                            channelID: channel.channelID,
                             expireAt: new Date(Date.now() + expiryTime)
                         });
                     }

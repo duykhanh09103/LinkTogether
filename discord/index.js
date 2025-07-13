@@ -81,8 +81,9 @@ ws.on('message', async (datas) => {
         for (const guildData of data) {
             let guild = await client.guilds.fetch(guildData.guildID);
             if (!guild) continue;
-            for (const channelID of guildData.allowedChannels) {
-                let channel = await guild.channels.fetch(channelID);
+            for (const channels of guildData.allowedChannels) {
+                if (channels.code !== messageData.data.channel.code) continue;
+                let channel = await guild.channels.fetch(channels.channelID);
                 let webhooks = await channel.fetchWebhooks();
                 const webhook = webhooks.find(wh => wh.token);
                 if (!webhook) {
@@ -104,7 +105,7 @@ ws.on('message', async (datas) => {
                     })
                 }
                 catch (error) {
-                    console.error(`Failed to send message to channel ${channelID} in guild ${guild.id}:`, error);
+                    console.error(`Failed to send message to channel ${channel.channelID} in guild ${guild.id}:`, error);
                 }
             }
         }
