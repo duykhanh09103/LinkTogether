@@ -2,6 +2,7 @@
 
 ## Demo !
 - join #linktogether on the hackclub slack or [linktogether](https://discord.gg/WaNveFJCaf) discord
+- discord bot [invite](https://discord.com/oauth2/authorize?client_id=1392502537269284954&permissions=2684463104&integration_type=0&scope=bot) link if u wanna try it out!
 
 ## How to use
 - clone the repo
