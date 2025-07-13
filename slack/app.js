@@ -77,37 +77,39 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
 
 app.message(async ({ message, say, client }) => {
     let channelInfo = await app.client.conversations.info({ channel: message.channel });
-    let team = message.team?? channelInfo.channel.context_team_id;
+    let team = message.team ?? channelInfo.channel.context_team_id;
     let data = await db.collection('slack_setting').findOne({ teamID: team });
     if (!data) return;
     if (!data.allowedChannels.some(item => item.channelID === message.channel)) return;
-    
+
     let code = data.allowedChannels.find(item => item.channelID === message.channel).code;
     if (!message.subtype) {
         const { user } = await client.users.info({ user: message.user });
+        console.log(user);
+        let userImage = user.profile.image_original ?? user.profile.image_192 ?? user.profile.image_48 ?? user.profile.image_24;
         ws.send(JSON.stringify({
             platform: 'slack',
             type: 'messageCreate',
             data: {
-                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
+                user: { imageURL: userImage, username: user.profile.display_name, id: message.user },
                 id: message.client_msg_id,
                 content: message.text,
-                channel: { id: message.channel, name: channelInfo.channel.name,code:code },
+                channel: { id: message.channel, name: channelInfo.channel.name, code: code },
             }
         }))
         return;
     }
     if (message.subtype === 'file_share') {
         const { user } = await client.users.info({ user: message.user });
-
+        let userImage = user.profile.image_original ?? user.profile.image_192 ?? user.profile.image_48 ?? user.profile.image_24;
         ws.send(JSON.stringify({
             platform: 'slack',
             type: 'messageCreate',
             data: {
-                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
+                user: { imageURL: userImage, username: user.profile.display_name, id: message.user },
                 id: message.client_msg_id,
                 content: message.text,
-                channel: { id: message.channel, name: channelInfo.channel.name , code: code },
+                channel: { id: message.channel, name: channelInfo.channel.name, code: code },
                 attachments: await getAttachment(message)
             }
 
@@ -117,11 +119,12 @@ app.message(async ({ message, say, client }) => {
 
     if (message.subtype === 'message_changed') {
         const { user } = await client.users.info({ user: message.message.user });
+        let userImage = user.profile.image_original?? user.profile.image_192?? user.profile.image_48?? user.profile.image_24;
         ws.send(JSON.stringify({
             platform: 'slack',
             type: 'messageUpdate',
             data: {
-                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
+                user: { imageURL: userImage, username: user.profile.display_name, id: message.user },
                 id: message.message.client_msg_id,
                 content: message.message.text,
                 channel: { id: message.channel, name: channelInfo.channel.name, code: code },
@@ -132,11 +135,12 @@ app.message(async ({ message, say, client }) => {
     }
     if (message.subtype === 'message_deleted') {
         const { user } = await client.users.info({ user: message.previous_message.user });
+        let userImage = user.profile.image_original?? user.profile.image_192?? user.profile.image_48?? user.profile.image_24;
         ws.send(JSON.stringify({
             platform: 'slack',
             type: 'messageDelete',
             data: {
-                user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.previous_message.user },
+                user: { imageURL: userImage, username: user.profile.display_name, id: message.previous_message.user },
                 id: message.previous_message.client_msg_id,
             }
         }));
