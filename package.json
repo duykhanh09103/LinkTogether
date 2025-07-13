@@ -10,5 +10,10 @@
   "type": "commonjs",
   "optionalDependencies": {
     "bufferutil": "^4.0.9"
+  },
+  "scripts":{
+    "discord":"node discord/index.js",
+    "slack":"node slack/app.js",
+    "ws-server":"node ws-server/index.js"
   }
 }
