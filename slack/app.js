@@ -154,26 +154,6 @@ async function getAttachment(message) {
     }
     return attachments;
 }
-async function getAttachmentFromWs(attachments) {
-    let attachmentArray = []
-    for (const attachment of attachments) {
-        if (attachment.url) {
-            attachmentArray.push({
-                filename: attachment.name,
-                file: (await fetch(attachment.url)).body
-            });
-        }
-        else {
-            attachmentArray.push({
-                filename: attachment.name,
-                file: Buffer.from(attachment.attachments.data)
-            })
-        }
-    }
-    return attachmentArray;
-
-}
-
 (async () => {
     await app.start();
     app.logger.info('⚡️ Bolt app is running!');
@@ -185,22 +165,8 @@ async function getAttachmentFromWs(attachments) {
         if (!teamData) return;
         for (const Team of teamData) {
             if (messageData.type === 'messageCreate') {
-                console.log("got it!")
                 for (const channelID of Team.allowedChannels) {
                     try {
-                        if (messageData.data.attachments && messageData.data.attachments.length > 0) {
-                            console.log(await getAttachmentFromWs(messageData.data.attachments));
-                            let message = await app.client.files.uploadV2({
-                                channel_id: channelID,
-                                file: await getAttachmentFromWs(messageData.data.attachments),
-                            })
-                            await db.collection('slack_messages').insertOne({
-                                originalID: messageData.data.id,
-                                messageTS: message.ts,
-                                channelID: channelID,
-                            })
-                            return;
-                        }
                         let message = await app.client.chat.postMessage({
                             channel: channelID,
                             text: ">" + messageData.data.content.replace("<", "").replace(">", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
