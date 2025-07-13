@@ -169,7 +169,7 @@ async function getAttachment(message) {
                     try {
                         let message = await app.client.chat.postMessage({
                             channel: channelID,
-                            text: ">" + messageData.data.content.replace("<", "").replace(">", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                            text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@","") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
                             username: messageData.data.user.username,
                             icon_url: messageData.data.user.imageURL,
                         })
@@ -190,7 +190,7 @@ async function getAttachment(message) {
                 await app.client.chat.update({
                     channel: data.channelID,
                     ts: data.messageTS,
-                    text: ">" + messageData.data.content.replace("<", "").replace(">", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                    text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@","") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
                 });
             }
             catch (error) { return console.error(`Failed to fetch channel or webhook for message update:`, error); }
