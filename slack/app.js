@@ -3,13 +3,14 @@ const { App, subtype } = require('@slack/bolt');
 require('dotenv').config();
 const { WebSocket } = require('ws');
 const { MongoClient } = require('mongodb');
+const ms = require('ms');
 
 const mongoClient = new MongoClient(process.env.MONGODB_URI);
 
 let db;
 mongoClient.connect().then(async () => {
     db = mongoClient.db();
-    console.log("Connected to MongoDB");
+    app.logger.info("Connected to MongoDB");
     await db.collection('slack_messages').createIndex({ "expireAt": 1 }, { expireAfterSeconds: 0 });
 });
 
@@ -36,6 +37,11 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
     await ack();
     const channel = command.channel_id;
     let data = await db.collection('slack_setting').findOne({ teamID: command.team_id })
+    let channelInfo = await app.client.conversations.info({channel: channel});
+    if(command.user_id !== channelInfo.channel.creator) {
+        await respond({ text: 'You do not have permission to set this channel.', response_type: 'ephemeral' });
+        return;
+    }
     if (!data) {
         try {
             await db.collection('slack_setting').insertOne({
@@ -69,9 +75,8 @@ app.command('/setchannel', async ({ command, ack, respond }) => {
 });
 
 app.message(async ({ message, say, client }) => {
-    console.log(message.subtype);
     console.log(message)
-
+    let channelInfo = await app.client.conversations.info({channel: message.channel});
     if (!message.subtype) {
         const { user } = await client.users.info({ user: message.user });
         ws.send(JSON.stringify({
@@ -81,7 +86,7 @@ app.message(async ({ message, say, client }) => {
                 user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
                 id: message.client_msg_id,
                 content: message.text,
-                channel: { id: message.channel },
+                channel: { id: message.channel,name: channelInfo.channel.name },
             }
         }))
         return;
@@ -96,7 +101,7 @@ app.message(async ({ message, say, client }) => {
                 user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
                 id: message.client_msg_id,
                 content: message.text,
-                channel: { id: message.channel },
+                channel: { id: message.channel, name: channelInfo.channel.name },
                 attachments: await getAttachment(message)
             }
 
@@ -113,7 +118,7 @@ app.message(async ({ message, say, client }) => {
                 user: { imageURL: user.profile.image_original, username: user.profile.display_name, id: message.user },
                 id: message.message.client_msg_id,
                 content: message.message.text,
-                channel: { id: message.channel },
+                channel: { id: message.channel, name: channelInfo.channel.name },
                 attachments: await getAttachment(message.message)
             }
         }))
@@ -129,6 +134,7 @@ app.message(async ({ message, say, client }) => {
                 id: message.previous_message.client_msg_id,
             }
         }));
+        return;
     }
 
 });
@@ -154,6 +160,25 @@ async function getAttachment(message) {
     }
     return attachments;
 }
+async function getAttachmentFromWs(attachments) {
+    let attachmentArray = [];
+    for (const attachment of attachments) {
+        if (attachment.url) {
+            let respond = await fetch(attachment.url);
+            let buffer = Buffer.from(await respond.arrayBuffer());
+            attachmentArray.push({
+                filename: attachment.name,
+                file: buffer
+            });
+        } else {
+            attachmentArray.push({
+                filename: attachment.name,
+                file: Buffer.from(attachment.attachments.data)
+            });
+        }
+    }
+    return attachmentArray;
+}
 (async () => {
     await app.start();
     app.logger.info('⚡️ Bolt app is running!');
@@ -161,6 +186,7 @@ async function getAttachment(message) {
     ws.on('message', async (datas) => {
         const messageData = JSON.parse(datas);
         console.log(messageData);
+        let expiryTime = ms("7d");
         let teamData = await db.collection('slack_setting').find({}).toArray();
         if (!teamData) return;
         for (const Team of teamData) {
@@ -169,14 +195,23 @@ async function getAttachment(message) {
                     try {
                         let message = await app.client.chat.postMessage({
                             channel: channelID,
-                            text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@","") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                            text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                             username: messageData.data.user.username,
                             icon_url: messageData.data.user.imageURL,
                         })
+                        if (messageData.data.attachments && messageData.data.attachments.length > 0) {
+                            await app.client.files.uploadV2({
+                                channel_id: channelID,
+                                file_uploads: await getAttachmentFromWs(messageData.data.attachments),
+                                thread_ts: message.ts,
+                            })
+                           
+                        }
                         await db.collection('slack_messages').insertOne({
                             originalID: messageData.data.id,
                             messageTS: message.ts,
                             channelID: channelID,
+                            expireAt: new Date(Date.now() + expiryTime)
                         });
                     }
                     catch (err) { return console.error(`Failed to send message to channel ${channelID}:`, err); }
@@ -186,11 +221,12 @@ async function getAttachment(message) {
         if (messageData.type === 'messageUpdate') {
             let data = await db.collection('slack_messages').findOne({ originalID: messageData.data.id });
             if (!data) return;
+            console.log(data);
             try {
                 await app.client.chat.update({
                     channel: data.channelID,
                     ts: data.messageTS,
-                    text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@","") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                    text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                 });
             }
             catch (error) { return console.error(`Failed to fetch channel or webhook for message update:`, error); }

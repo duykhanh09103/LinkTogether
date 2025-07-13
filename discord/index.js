@@ -90,7 +90,7 @@ ws.on('message', async (datas) => {
                 }
                 try {
                     let webhookMessage = await webhook.send({
-                        content: messageData.data.content +`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                        content: messageData.data.content +`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                         username: messageData.data.user.username,
                         avatarURL: messageData.data.user.imageURL,
                         files: getAttachment(messageData.data.attachments),
@@ -121,7 +121,7 @@ ws.on('message', async (datas) => {
                return;
             }
             webhook.editMessage(data.messageID, {
-                content: messageData.data.content+`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.id}`,
+                content: messageData.data.content+`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                 files: getAttachment(messageData.data.attachments),
             });
         }
