@@ -83,6 +83,7 @@ ws.on('message', async (datas) => {
             if (!guild) continue;
             for (const channels of guildData.allowedChannels) {
                 if (channels.code !== messageData.data.channel.code) continue;
+                let referenceMessageId = null;
                 let channel = await guild.channels.fetch(channels.channelID);
                 let webhooks = await channel.fetchWebhooks();
                 const webhook = webhooks.find(wh => wh.token);
@@ -90,19 +91,47 @@ ws.on('message', async (datas) => {
                     await channel.createWebhook({ name: 'LinkTogether Webhook' });
                 }
                 try {
-                    let webhookMessage = await webhook.send({
-                        content: messageData.data.content +`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
-                        username: messageData.data.user.username,
-                        avatarURL: messageData.data.user.imageURL,
-                        files: getAttachment(messageData.data.attachments),
-                    })
-                    await client.db.collection('discord_messages').insertOne({
-                        originalID: messageData.data.id,
-                        channelID: channel.id,
-                        guildID: guild.id,
-                        messageID: webhookMessage.id,
-                        expireAt: new Date(Date.now() + expiryTime)
-                    })
+                    if (messageData.data.reply.status) {
+                        let data = await client.db.collection('discord_messages').findOne({ originalID: messageData.data.reply.id });
+
+                        if (data) {
+                            let fetchedMessage = await webhook.fetchMessage(data.messageID)
+                            await webhook.edit({
+                                avatar: messageData.data.user.imageURL,
+                                name: messageData.data.user.username,
+                                reason: "reply message need to edit webhook"
+                            })
+                            let webhookMessage = await fetchedMessage.reply({
+                                content: messageData.data.content + `\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
+                                files: getAttachment(messageData.data.attachments),
+                            })
+                            await client.db.collection('discord_messages').insertOne({
+                                originalID: messageData.data.id,
+                                channelID: channel.id,
+                                guildID: guild.id,
+                                messageID: webhookMessage.id,
+                                expireAt: new Date(Date.now() + expiryTime)
+                            })
+                        }
+
+                    }
+                    else {
+                        let webhookMessage = await webhook.send({
+                            content: messageData.data.content + `\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
+                            username: messageData.data.user.username,
+                            avatarURL: messageData.data.user.imageURL,
+                            files: getAttachment(messageData.data.attachments),
+                        })
+                        await client.db.collection('discord_messages').insertOne({
+                            originalID: messageData.data.id,
+                            channelID: channel.id,
+                            guildID: guild.id,
+                            messageID: webhookMessage.id,
+                            expireAt: new Date(Date.now() + expiryTime)
+                        })
+                    }
+
+
                 }
                 catch (error) {
                     console.error(`Failed to send message to channel ${channel.channelID} in guild ${guild.id}:`, error);
@@ -119,10 +148,10 @@ ws.on('message', async (datas) => {
             let webhooks = await channel.fetchWebhooks();
             const webhook = webhooks.find(wh => wh.token);
             if (!webhook) {
-               return;
+                return;
             }
             webhook.editMessage(data.messageID, {
-                content: messageData.data.content+`\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
+                content: messageData.data.content + `\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                 files: getAttachment(messageData.data.attachments),
             });
         }
@@ -131,7 +160,7 @@ ws.on('message', async (datas) => {
             return;
         }
     }
-    if(messageData.type === 'messageDelete'){
+    if (messageData.type === 'messageDelete') {
         let data = await client.db.collection('discord_messages').findOne({ originalID: messageData.data.id });
         if (!data) return;
         try {
@@ -151,8 +180,8 @@ ws.on('message', async (datas) => {
     }
 });
 
-function getAttachment(attachments){
-    if(!attachments || attachments.length === 0) return undefined;
+function getAttachment(attachments) {
+    if (!attachments || attachments.length === 0) return undefined;
     let attachmentArray = []
     for (const attachment of attachments) {
         if (attachment.url) {

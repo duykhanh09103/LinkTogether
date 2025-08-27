@@ -85,6 +85,8 @@ app.message(async ({ message, say, client }) => {
     let code = data.allowedChannels.find(item => item.channelID === message.channel).code;
     if (!message.subtype) {
         const { user } = await client.users.info({ user: message.user });
+        let isThread = false
+        if(message.thread_ts){isThread = true}
         console.log(user);
         let userImage = user.profile.image_original ?? user.profile.image_192 ?? user.profile.image_48 ?? user.profile.image_24;
         ws.send(JSON.stringify({
@@ -92,8 +94,9 @@ app.message(async ({ message, say, client }) => {
             type: 'messageCreate',
             data: {
                 user: { imageURL: userImage, username: user.profile.display_name, id: message.user },
-                id: message.client_msg_id,
+                id: message.ts,
                 content: message.text,
+                reply: { status: isThread, id: message.thread_ts ?? null },
                 channel: { id: message.channel, name: channelInfo.channel.name, code: code },
             }
         }))
@@ -107,7 +110,7 @@ app.message(async ({ message, say, client }) => {
             type: 'messageCreate',
             data: {
                 user: { imageURL: userImage, username: user.profile.display_name, id: message.user },
-                id: message.client_msg_id,
+                id: message.ts,
                 content: message.text,
                 channel: { id: message.channel, name: channelInfo.channel.name, code: code },
                 attachments: await getAttachment(message)
@@ -125,7 +128,7 @@ app.message(async ({ message, say, client }) => {
             type: 'messageUpdate',
             data: {
                 user: { imageURL: userImage, username: user.profile.display_name, id: message.user },
-                id: message.message.client_msg_id,
+                id: message.message.ts,
                 content: message.message.text,
                 channel: { id: message.channel, name: channelInfo.channel.name, code: code },
                 attachments: await getAttachment(message.message)
@@ -141,7 +144,7 @@ app.message(async ({ message, say, client }) => {
             type: 'messageDelete',
             data: {
                 user: { imageURL: userImage, username: user.profile.display_name, id: message.previous_message.user },
-                id: message.previous_message.client_msg_id,
+                id: message.previous_message.ts,
             }
         }));
         return;
@@ -204,11 +207,19 @@ async function getAttachmentFromWs(attachments) {
                 for (const channel of Team.allowedChannels) {
                     if (channel.code !== messageData.data.channel.code) continue;
                     try {
+                        let thread_ts = null;
+                        if(messageData.data.reply.status){
+                            let data = await db.collection('slack_messages').findOne({ originalID: messageData.data.reply.id});
+                            if(data){
+                                thread_ts = data.messageTS;
+                            }
+                        }
                         let message = await app.client.chat.postMessage({
                             channel: channel.channelID,
                             text: ">" + messageData.data.content.replace("<", "").replace(">", "").replace("@", "") + `\n Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
                             username: messageData.data.user.username,
                             icon_url: messageData.data.user.imageURL,
+                            thread_ts: thread_ts
                         })
                         if (messageData.data.attachments && messageData.data.attachments.length > 0) {
                             await app.client.files.uploadV2({
