@@ -104,6 +104,8 @@ app.message(async ({ message, say, client }) => {
     }
     if (message.subtype === 'file_share') {
         const { user } = await client.users.info({ user: message.user });
+        let isThread = false
+        if(message.thread_ts){isThread = true}
         let userImage = user.profile.image_original ?? user.profile.image_192 ?? user.profile.image_48 ?? user.profile.image_24;
         ws.send(JSON.stringify({
             platform: 'slack',
@@ -113,6 +115,7 @@ app.message(async ({ message, say, client }) => {
                 id: message.ts,
                 content: message.text,
                 channel: { id: message.channel, name: channelInfo.channel.name, code: code },
+                reply: { status: isThread, id: message.thread_ts ?? null },
                 attachments: await getAttachment(message)
             }
 
