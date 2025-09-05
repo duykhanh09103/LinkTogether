@@ -1,4 +1,6 @@
 # LinkTogether
+Its the bot for a lot of platform that send message to and from every platform so that user can chat together despite staying in different one!
+For now only discord and slack is supported
 
 ## Demo !
 - join #linktogether on the hackclub slack or [linktogether](https://discord.gg/WaNveFJCaf) discord
