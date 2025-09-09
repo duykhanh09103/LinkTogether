@@ -32,7 +32,33 @@ const app = new App({
     appToken: process.env.SLACK_APP_TOKEN,
 
 });
-
+app.command('/removechannel', async ({ command, ack, respond }) => {
+    await ack();
+    const channel = command.channel_id;
+    let data = await db.collection('slack_setting').findOne({ teamID: command.team_id });
+    let channelInfo = await app.client.conversations.info({ channel: channel });
+    if (command.user_id !== channelInfo.channel.creator) {
+        await respond({ text: 'You do not have permission to remove this channel.', response_type: 'ephemeral' });
+        return;
+    }
+    if (!data) { await respond({ text: 'No settings found for this workspace.', response_type: 'ephemeral' }); return }
+    if (!data.allowedChannels.some(item => item.channelID === channel)) {
+        await respond({ text: `The channel <#${channel}> is not set !.`, response_type: 'ephemeral' });
+        return;
+    }
+    try {
+        await db.collection('slack_setting').updateOne({ teamID: command.team_id }, {
+            $pull: {
+                allowedChannels: { channelID: channel }
+            }
+        });
+        await respond({ text: `The channel <#${channel}> has been removed successfully.`, response_type: 'ephemeral' });
+    } 
+    catch (error) {
+        console.error(error)
+        await respond({ text: 'An error occurred while removing the channel.', response_type: 'ephemeral' });
+    }
+});
 app.command('/setchannel', async ({ command, ack, respond }) => {
     await ack();
     const channel = command.channel_id;
