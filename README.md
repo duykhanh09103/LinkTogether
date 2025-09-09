@@ -6,6 +6,7 @@ For now only discord and slack is supported
 - join #linktogether on the hackclub slack or [linktogether](https://discord.gg/WaNveFJCaf) discord
 - discord bot [invite](https://discord.com/oauth2/authorize?client_id=1392502537269284954&permissions=2684463104&integration_type=0&scope=bot) link if u wanna try it out!
 - after adding the bot run /setchannel (custom string) on both slack and discord to link it together. reminder to have custom string the same for it to work
+- if you want to remove the bot from the channel run /removechannel or just kick the bot from your channel(the bot can read or send messasge if kicked)
 
 ## How to use
 - clone the repo
