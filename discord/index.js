@@ -1,6 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs');
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, WebhookClient } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, EmbedBuilder, WebhookClient, ActionRowBuilder,ButtonBuilder } = require('discord.js');
 const { WebSocket } = require('ws');
 const { MongoClient } = require('mongodb');
 const ms = require('ms');
@@ -79,7 +79,8 @@ ws.on('message', async (datas) => {
         let data = await client.db.collection('discord_guild_setting').find({}).toArray();
         if (!data || data.length === 0) return;
         for (const guildData of data) {
-            let guild = await client.guilds.fetch(guildData.guildID);
+            let guild = await client.guilds.fetch(guildData.guildID)
+            .catch((err)=> console.log(err));
             if (!guild) continue;
             for (const channels of guildData.allowedChannels) {
                 if (channels.code !== messageData.data.channel.code) continue;
@@ -96,13 +97,19 @@ ws.on('message', async (datas) => {
 
                         if (data) {
                             let fetchedMessage = await webhook.fetchMessage(data.messageID)
-                            await webhook.edit({
-                                avatar: messageData.data.user.imageURL,
-                                name: messageData.data.user.username,
-                                reason: "reply message need to edit webhook"
-                            })
-                            let webhookMessage = await fetchedMessage.reply({
+                            let replyedRow = new ActionRowBuilder()
+                            .addComponents(
+                                new ButtonBuilder()
+                                    .setLabel('↩️Replyed Message')
+                                    .setStyle('Link')
+                                    .setURL(fetchedMessage.url)
+                            )
+                               
+                            let webhookMessage = await webhook.send({
                                 content: messageData.data.content + `\n-# Sent from ${messageData.platform} - in channel ${messageData.data.channel.name}`,
+                                components:[replyedRow],
+                                username: messageData.data.user.username,
+                            avatarURL: messageData.data.user.imageURL,
                                 files: getAttachment(messageData.data.attachments),
                             })
                             await client.db.collection('discord_messages').insertOne({
